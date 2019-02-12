@@ -3,72 +3,90 @@ require 'active_support/inflector'
 
 class InteractiveRecord
 
- 	 def self.table_name
+  def self.table_name
     self.to_s.downcase.pluralize
   end
 
-   def self.column_names
-    DB[:conn].results_as_hash = true
-
-     sql = "PRAGMA table_info('#{table_name}')"
+  def self.column_names
+    #hash of columns names
+    #return them as a an array of strings
     column_names = []
+    #DB[:conn].results_as_hash = true #not sure that this is needed since it is in the environment file
+
+    sql = "PRAGMA table_info('#{table_name}')" #give you the hash of info
     table_info = DB[:conn].execute(sql)
-    table_info.each do |column|
-      column_names << column['name']
+
+    table_info.each do |col| #iterate over the array of hashes
+      column_names << col["name"] #this gives you the value for the key "name"
     end
-    column_names.compact
+    column_names.compact #to get rid of any nulls
   end
 
-   self.column_names.each do |attribute|
-    attr_accessor attribute.to_sym
+
+  def initialize(options = {}) #pass in a hash
+    options.each do |key,value|
+      self.send(("#{key}="),value)
+    end
   end
 
-   def table_name_for_insert
+  def table_name_for_insert
+    #returns the table name when called on an intance of a Student
     self.class.table_name
   end
 
-   def col_names_for_insert
-    self.class.column_names.delete_if {|col| col == "id"}.join(", ")
+  def col_names_for_insert
+    #return the column names when called on an instance of Student
+    #returns it as a string ready to be inserted into a sql statement
+    self.class.column_names.delete_if {|column_name| column_name == "id"}.join (", ")
   end
 
-   def initialize(attribute={})
-    attribute.each do |attribute, value|
-      self.send("#{attribute}=", value)
+  def values_for_insert
+    #to insert data into db
+    #formats the column names to be used in a SQL statement
+    #use the column_names array, iterate over it to get the attribute names
+    #and then user the attribute = method with send to assign the value
+    values_array = []
+    self.class.column_names.each do |column_name|
+      #get the value for each attribute name
+      values_array << "'#{send(column_name)}'" unless send(column_name).nil?
     end
+    values_array.join(", ")
   end
-
-   def values_for_insert
-  values = []
-  self.class.column_names.each do |col_name|
-    values << "'#{send(col_name)}'" unless send(col_name).nil?
-  end
-  values.join(", ")
- end
 
   def save
+    #insert data into db #save saves the student to the db
     sql = "INSERT INTO #{table_name_for_insert} (#{col_names_for_insert}) VALUES (#{values_for_insert})"
     DB[:conn].execute(sql)
-    @id = DB[:conn].execute("SELECT last_insert_rowid() FROM #{table_name_for_insert}")[0][0]
+    self.id = DB[:conn].execute("SELECT last_insert_rowid() FROM #{table_name_for_insert}")[0][0]
   end
 
-   def self.find_by_name(name)
-    sql = <<-SQL
-      SELECT * FROM #{self.table_name} WHERE name = '#{name}'
+  def self.find_by_name(name)
+    sql = "SELECT * FROM #{self.table_name} WHERE name = ?"
+    row = DB[:conn].execute(sql,name)
+  end
+
+  def self.find_by(attribute)
+    #executes the SQL to find a row by the attribute passed into the method
+    #WHERE name = ? OR grade = ? OR id = ?
+    #attribute is a hash, so it has a key/value pair
+    attribute_key = attribute.keys.join()
+    attrubute_value = attribute.values.first
+    sql =<<-SQL
+      SELECT * FROM #{self.table_name}
+      WHERE #{attribute_key} = "#{attrubute_value}"
+      LIMIT 1
     SQL
-
-     DB[:conn].execute(sql)
+    row = DB[:conn].execute(sql)
   end
 
-   def self.find_by(attribute)
-    column = attribute.to_a.flatten[0].to_s
-    value = attribute.to_a.flatten[1]
-
-     if value.to_i > 0
-       sql = "SELECT * FROM #{self.table_name} WHERE #{column} = #{value};"
-     else
-       sql = "SELECT * FROM #{self.table_name} WHERE #{column} = '#{value}';"
-     end
+=begin
+this was the schools answer
+ def self.find_by(attribute_hash)
+    value = attribute_hash.values.first
+    formatted_value = value.class == Fixnum ? value : "'#{value}'"
+    sql = "SELECT * FROM #{self.table_name} WHERE #{attribute_hash.keys.first} = #{formatted_value}"
     DB[:conn].execute(sql)
   end
+=end
 
- end
+end
